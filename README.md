@@ -1,6 +1,6 @@
 # upstate-rails
 
-Rails app health for [Upstate](https://upstate.cloud): boot facts, migrations, database size, Puma, jobs, and the slowest actions. Counts only.
+Rails app health for [Upstate](https://upstate.cloud): boot facts, migrations, database health, Puma, jobs, and the slowest actions. Counts only.
 
 The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads it from inside your server, over your private Docker network, every minute. Nothing else is installed, and nothing is sent anywhere by the gem itself.
 
@@ -8,7 +8,7 @@ The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads 
 
 - App version (`APP_VERSION`, else `KAMAL_VERSION`, else `unknown`), Rails and Ruby versions, whether YJIT is on, when the process booted.
 - Whether the database answers, and whether migrations are pending.
-- The size of the app's PostgreSQL database in bytes (`pg_database_size(current_database())` on the primary connection). It counts that database only, not WAL or other databases on the same server. Upstate uses it to show growth and, when you enter or link a storage limit, percent used and days until full. Read with one query under a 500ms statement timeout; left out on MySQL, SQLite or any error.
+- Database health for the primary connection (PostgreSQL only): its size in bytes (`pg_database_size`, this database only, not WAL or other databases), connections in use and `max_connections`, the oldest open transaction's age and the number of sessions idle in transaction (as visible to the app's role), `age(datfrozenxid)` (wraparound headroom), replication lag where this connection can see it, and the 5 largest tables with their total size and estimated live and dead rows. Table names are sent; row data never is. One transaction with a 250ms statement timeout and a savepoint per query; anything that fails, or MySQL/SQLite, is left out.
 - Active Record pool size, busy and waiting connections.
 - Puma workers, threads, backlog and spare capacity.
 - Job numbers for Solid Queue, Sidekiq or GoodJob: queue depth, oldest queued age, worker count, jobs processed and failed in the last 5 minutes, and when something last ran.
@@ -17,7 +17,7 @@ The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads 
 
 ## What is never sent
 
-No params, URLs or paths, SQL, IP addresses, user agents, headers, cookies, job arguments, exception classes or messages, logs, or traces. An error is only a count (a 5xx response or an unhandled exception). Job queue names and job class names are not read either.
+No params, URLs or paths, SQL, row data, IP addresses, user agents, headers, cookies, job arguments, exception classes or messages, logs, or traces. An error is only a count (a 5xx response or an unhandled exception). Job queue names and job class names are not read either.
 
 ## Install
 
