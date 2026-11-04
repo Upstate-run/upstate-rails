@@ -16,7 +16,31 @@ module Upstate
         end
         return {ok: false, pending_migrations: nil} unless ok
 
-        {ok: true, pending_migrations: pending_migrations}
+        result = {ok: true, pending_migrations: pending_migrations}
+        size = database_size_bytes
+        result[:size_bytes] = size if size
+        result
+      end
+
+      SIZE_TIMEOUT_MS = 500
+
+      # pg_database_size(current_database()) for the primary connection: this one database in
+      # bytes, not WAL or other databases on the server. One cheap catalog call under a
+      # transaction-local statement timeout, PostgreSQL only. Any other adapter, a timeout or
+      # an error returns nil and the field is left out; it never changes database.ok.
+      def database_size_bytes
+        ::ActiveRecord::Base.connection_pool.with_connection do |connection|
+          next nil unless connection.adapter_name.to_s.match?(/postg/i)
+
+          value = connection.transaction(requires_new: true) do
+            connection.execute("SET LOCAL statement_timeout = #{SIZE_TIMEOUT_MS}")
+            connection.select_value("SELECT pg_database_size(current_database())")
+          end
+          bytes = Integer(value, exception: false)
+          bytes if bytes && bytes >= 0
+        end
+      rescue StandardError
+        nil
       end
 
       # ConnectionPool#migration_context exists on 7.1+; older shapes fall back to the connection.

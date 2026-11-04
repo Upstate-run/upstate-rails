@@ -1,6 +1,6 @@
 # upstate-rails
 
-Rails app health for [Upstate](https://upstate.cloud): boot facts, migrations, Puma, jobs, and the slowest actions. Counts only.
+Rails app health for [Upstate](https://upstate.cloud): boot facts, migrations, database size, Puma, jobs, and the slowest actions. Counts only.
 
 The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads it from inside your server, over your private Docker network, every minute. Nothing else is installed, and nothing is sent anywhere by the gem itself.
 
@@ -8,6 +8,7 @@ The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads 
 
 - App version (`APP_VERSION`, else `KAMAL_VERSION`, else `unknown`), Rails and Ruby versions, whether YJIT is on, when the process booted.
 - Whether the database answers, and whether migrations are pending.
+- The size of the app's PostgreSQL database in bytes (`pg_database_size(current_database())` on the primary connection). It counts that database only, not WAL or other databases on the same server. Upstate uses it to show growth and, when you enter or link a storage limit, percent used and days until full. Read with one query under a 500ms statement timeout; left out on MySQL, SQLite or any error.
 - Active Record pool size, busy and waiting connections.
 - Puma workers, threads, backlog and spare capacity.
 - Job numbers for Solid Queue, Sidekiq or GoodJob: queue depth, oldest queued age, worker count, jobs processed and failed in the last 5 minutes, and when something last ran.

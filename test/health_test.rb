@@ -51,6 +51,74 @@ class HealthTest < Minitest::Test
     end
   end
 
+  FakePgConnection = Struct.new(:adapter_name, :value, :statements) do
+    def transaction(requires_new: false)
+      yield
+    end
+
+    def execute(sql)
+      statements << sql
+    end
+
+    def select_value(sql)
+      statements << sql
+      raise value if value.is_a?(Exception)
+      value
+    end
+  end
+
+  FakePool = Struct.new(:connection) do
+    def with_connection
+      yield connection
+    end
+  end
+
+  def with_fake_connection(connection, &block)
+    ActiveRecord::Base.stub(:connection_pool, FakePool.new(connection), &block)
+  end
+
+  def test_sqlite_omits_the_database_size
+    body = Upstate::Rails::Health.call[1]
+    refute body[:database].key?(:size_bytes)
+    assert_nil Upstate::Rails::Sections.database_size_bytes
+  end
+
+  def test_postgres_reports_the_database_size_under_a_statement_timeout
+    connection = FakePgConnection.new("PostgreSQL", 1_342_177_280, [])
+    with_fake_connection(connection) do
+      assert_equal 1_342_177_280, Upstate::Rails::Sections.database_size_bytes
+    end
+    assert_equal ["SET LOCAL statement_timeout = 500", "SELECT pg_database_size(current_database())"], connection.statements
+  end
+
+  def test_postgis_counts_as_postgres_and_string_values_are_parsed
+    with_fake_connection(FakePgConnection.new("PostGIS", "4096", [])) do
+      assert_equal 4096, Upstate::Rails::Sections.database_size_bytes
+    end
+  end
+
+  def test_size_errors_and_timeouts_are_left_out_without_failing_the_database_section
+    with_fake_connection(FakePgConnection.new("PostgreSQL", RuntimeError.new("canceling statement due to statement timeout"), [])) do
+      assert_nil Upstate::Rails::Sections.database_size_bytes
+    end
+
+    Upstate::Rails::Sections.stub(:database_size_bytes, nil) do
+      database = Upstate::Rails::Sections.database
+      assert_equal true, database[:ok]
+      refute database.key?(:size_bytes)
+    end
+
+    Upstate::Rails::Sections.stub(:database_size_bytes, 77) do
+      assert_equal 77, Upstate::Rails::Health.call[1][:database][:size_bytes]
+    end
+  end
+
+  def test_mysql_omits_the_database_size
+    with_fake_connection(FakePgConnection.new("Mysql2", 10, [])) do
+      assert_nil Upstate::Rails::Sections.database_size_bytes
+    end
+  end
+
   def test_database_down_is_503
     Upstate::Rails::Sections.stub(:database, {ok: false, pending_migrations: nil}) do
       status, body = Upstate::Rails::Health.call
