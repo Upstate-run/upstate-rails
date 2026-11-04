@@ -40,7 +40,7 @@ module Upstate
       SQL
 
       TABLES_SQL = <<~SQL
-        SELECT schemaname || '.' || relname, pg_total_relation_size(relid), n_live_tup, n_dead_tup
+        SELECT quote_ident(schemaname) || '.' || quote_ident(relname), pg_total_relation_size(relid), n_live_tup, n_dead_tup
         FROM pg_stat_user_tables
         ORDER BY pg_total_relation_size(relid) DESC
         LIMIT 5
@@ -54,7 +54,8 @@ module Upstate
       # size (this database only, not WAL or other databases), connections vs
       # max_connections, the oldest open transaction and sessions idle in transaction (as
       # visible to the app's role), age(datfrozenxid), replication lag where visible, and
-      # the 5 largest tables with estimated live/dead rows (names and numbers, no row data).
+      # the 5 largest tables with estimated live/dead rows (names and numbers, no row data;
+      # each name part is quote_ident-ed so distinct tables never share a schema.table name).
       # One transaction with a transaction-local statement timeout and a savepoint per query,
       # so a failing query drops only its fields. Other adapters or any error return {}.
       def database_stats
