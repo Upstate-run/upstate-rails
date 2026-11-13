@@ -2,3 +2,7 @@
 Gemfile.lock
 gemfiles/*.lock
 /tmp/
+
+# Python bytecode from the publish scripts
+__pycache__/
+*.py[co]

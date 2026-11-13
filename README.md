@@ -12,12 +12,13 @@ The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads 
 - Active Record pool size, busy and waiting connections.
 - Puma workers, threads, backlog and spare capacity.
 - Job numbers for Solid Queue, Sidekiq or GoodJob: queue depth, oldest queued age, worker count, jobs processed and failed in the last 5 minutes, and when something last ran.
+- Solid Queue only: your recurring jobs from `config/recurring.yml` (or `SOLID_QUEUE_RECURRING_SCHEDULE`), under the current Rails environment. For each, the key, the class name and the schedule text, and for its recent runs (last 24 hours, newest 10 finished runs per job, plus any still running) an id, when it started or finished and whether it succeeded, failed or is running. Upstate turns these into check-in suggestions; nothing is monitored until you accept. A job's arguments and `command:` are never read.
 - Whether your cache (Solid Cache or Redis) answers.
 - For the last 15 minutes, the 10 slowest `Controller#action` names per minute, with request count, error count, a 12-bucket timing histogram, and total database time.
 
 ## What is never sent
 
-No params, URLs or paths, SQL, row data, IP addresses, user agents, headers, cookies, job arguments, exception classes or messages, logs, or traces. An error is only a count (a 5xx response or an unhandled exception). Job queue names and job class names are not read either.
+No params, URLs or paths, SQL, row data, IP addresses, user agents, headers, cookies, job arguments, exception classes or messages, logs, or traces. An error is only a count (a 5xx response or an unhandled exception). Queue names are not read. Job class names are read only for the recurring jobs listed in `config/recurring.yml`, and never for other jobs.
 
 ## Install
 

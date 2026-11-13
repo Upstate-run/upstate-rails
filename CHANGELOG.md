@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0
+
+- Solid Queue: report the app's recurring jobs in a new `recurring` section so Upstate can
+  propose a check-in for each one:
+  - `tasks`: `{key, class_name, schedule, interval_seconds}` for each entry of
+    `config/recurring.yml` (or `SOLID_QUEUE_RECURRING_SCHEDULE`) under the current Rails
+    environment key. `interval_seconds` is the longest gap between the next runs, from Fugit
+    when it is loaded. Job arguments, `command:` and queue names are never read.
+  - `runs`: for those jobs, the last 24 hours (newest 10 finished runs per job, plus every run still going at any age; running jobs are read independently of the row limits; finished and failed runs are the newest by end time) as `{key, run_id,
+    started_at, finished_at, result}` with `result` of `success`, `fail` or `running`,
+    read from Solid Queue's own tables so any container reports them. `run_id` is
+    `sq-<job id>`. Solid Queue keeps no start time once a job finishes, so `started_at` is
+    only present while a run is going.
+  - The section is left out when there is no readable schedule or another job adapter is
+    in use (sidekiq-cron and GoodJob cron are not read yet; `Upstate::Rails::Recurring::SOURCES`
+    is the seam). The schema stays 1 and the section is additive: servers that predate it
+    ignore it, and this gem keeps working against them.
+
 ## 0.2.0
 
 - Report database health in the `database` section, for the primary connection on

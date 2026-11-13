@@ -33,6 +33,8 @@ module Upstate
           actions: section { actions }
         }
         body[:solid_queue] = solid_queue if solid_queue
+        recurring = section { Recurring.call(now: @now) }
+        body[:recurring] = recurring if recurring
 
         status = database && database[:ok] == false ? 503 : 200
         [status, body]
