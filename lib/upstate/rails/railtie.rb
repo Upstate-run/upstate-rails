@@ -34,7 +34,12 @@ module Upstate
         next if ENV["UPSTATE_HEALTH_TOKEN"].to_s.empty?
 
         Upstate::Rails.subscribe!
-        at_exit { Upstate::Rails.rollup.flush! }
+        at_exit { Upstate::Rails.rollup.flush! unless Upstate::Rails.flush_disabled? }
+      end
+
+      # Defined only; nothing runs until someone invokes the task.
+      rake_tasks do
+        load File.expand_path("../../tasks/upstate.rake", __dir__)
       end
 
       generators do

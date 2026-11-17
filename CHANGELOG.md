@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- Add `rake upstate:verify`, a read-only check that sends nothing to Upstate and writes nothing (it reads the app's database, as the endpoint does, and does not touch the cache, job systems, recurring-job tables or action rollups): disabled or configured, token presence (never the value), reporter and runtime versions, and endpoint authorization and response. Nothing runs on install, and it sends nothing to Upstate.
+
 ## 0.3.0
 
 - Solid Queue: report the app's recurring jobs in a new `recurring` section so Upstate can

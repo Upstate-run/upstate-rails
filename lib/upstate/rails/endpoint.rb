@@ -6,12 +6,18 @@ module Upstate
     class Endpoint
       MAX_TOKEN_BYTES = 256
 
+      # `health` is any callable returning [status, body]; `rake upstate:verify` passes a
+      # read-only one.
+      def initialize(health: Health.method(:call))
+        @health = health
+      end
+
       def call(env)
         expected = ENV["UPSTATE_HEALTH_TOKEN"].to_s
         return respond(404, "") if expected.empty?
         return respond(401, "", "www-authenticate" => "Bearer") unless authorized?(env["HTTP_AUTHORIZATION"], expected)
 
-        status, body = Health.call
+        status, body = @health.call
         respond(status, JSON.generate(body), "content-type" => "application/json")
       end
 

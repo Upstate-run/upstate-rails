@@ -6,18 +6,22 @@ module Upstate
     class Health
       SCHEMA = 1
 
-      def self.call(now: Time.now)
-        new(now).call
+      # `read_only` builds the response without any write or side effect: the cache probe,
+      # the job-system read (Sidekiq's process set prunes dead entries when loaded) and
+      # recurring-job tables (Solid Queue) and action rollups are skipped. Used by the local verify.
+      def self.call(now: Time.now, read_only: false)
+        new(now, read_only: read_only).call
       end
 
-      def initialize(now)
+      def initialize(now, read_only: false)
         @now = now
+        @read_only = read_only
       end
 
       # => [http_status, body_hash]
       def call
         database = section { Sections.database }
-        jobs, solid_queue = section { Jobs.call(now: @now) } || [nil, nil]
+        jobs, solid_queue = (@read_only ? nil : section { Jobs.call(now: @now) }) || [nil, nil]
 
         body = {
           schema: SCHEMA,
@@ -29,11 +33,11 @@ module Upstate
           active_record_pool: section { Sections.active_record_pool },
           puma: section { Sections.puma },
           jobs: jobs,
-          cache: section { Sections.cache },
-          actions: section { actions }
+          cache: @read_only ? nil : section { Sections.cache },
+          actions: @read_only ? nil : section { actions }
         }
         body[:solid_queue] = solid_queue if solid_queue
-        recurring = section { Recurring.call(now: @now) }
+        recurring = @read_only ? nil : section { Recurring.call(now: @now) }
         body[:recurring] = recurring if recurring
 
         status = database && database[:ok] == false ? 503 : 200

@@ -26,6 +26,15 @@ module Upstate
         @rollup ||= ActionRollup.new
       end
 
+      # `rake upstate:verify` turns the exit-time flush off so the check writes nothing.
+      def disable_flush!
+        @flush_disabled = true
+      end
+
+      def flush_disabled?
+        !!@flush_disabled
+      end
+
       # Subscribes once to process_action.action_controller.
       def subscribe!
         return if @subscriber
@@ -67,4 +76,5 @@ require_relative "rails/recurring"
 require_relative "rails/sections"
 require_relative "rails/health"
 require_relative "rails/endpoint"
+require_relative "rails/verify"
 require_relative "rails/railtie"

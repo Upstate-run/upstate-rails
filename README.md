@@ -63,6 +63,16 @@ curl -i -H "Authorization: Bearer $UPSTATE_HEALTH_TOKEN" https://your-app.exampl
 
 You should get `200` and JSON starting with `"schema": 1`. A `503` means the database is not answering (the JSON says so). Anything with a slow, missing or erroring section reports that section as `null` and still returns the rest.
 
+### Local check
+
+```sh
+bin/rails upstate:verify
+```
+
+Read-only. It sends nothing to Upstate and writes nothing (no cache probe, no job-system access, no action-rollup flush, no credential change), though it reads your database to build the response, as the endpoint does. It does not touch the cache, Sidekiq or other job systems, recurring-job tables or action rollups. It shows whether the reporter is on or disabled, that a token is present (its value is never printed), the reporter, Rails and Ruby versions, and that the endpoint rejects a wrong token, accepts the configured one and answers with schema 1 (the version it shows is your `APP_VERSION` or `KAMAL_VERSION`, not the gem's). It exits non-zero when something needs fixing and says what to do. It never runs on install, only when you invoke it.
+
+A passing local check does not prove Upstate is receiving data. After a deploy, run `upstate doctor` to see Configured, Connected and Fresh evidence from Upstate itself.
+
 ## Good to know
 
 - The route is added ahead of your routes, so a catch-all route cannot hide it.
