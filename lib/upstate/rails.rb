@@ -21,6 +21,7 @@ module Upstate
     class << self
       # The per-process action rollup. Replaceable in tests.
       attr_writer :rollup
+      attr_accessor :queue_progress
 
       def rollup
         @rollup ||= ActionRollup.new

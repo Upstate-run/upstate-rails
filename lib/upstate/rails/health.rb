@@ -39,6 +39,8 @@ module Upstate
         body[:solid_queue] = solid_queue if solid_queue
         recurring = @read_only ? nil : section { Recurring.call(now: @now) }
         body[:recurring] = recurring if recurring
+        queues = @read_only ? nil : section { queue_progress }
+        body[:queue_progress] = queues if queues && !queues.empty?
 
         status = database && database[:ok] == false ? 503 : 200
         [status, body]
@@ -57,6 +59,30 @@ module Upstate
       def actions
         Upstate::Rails.rollup.flush!
         ActionStore.merged(now: @now).map { |m| {minute: m[:minute].iso8601, items: m[:items]} }
+      end
+
+      def queue_progress
+        callback = Upstate::Rails.queue_progress
+        return unless callback
+
+        samples = callback.call(@now)
+        return unless samples.is_a?(Array)
+
+        samples.first(10).filter_map do |sample|
+          next unless sample.is_a?(Hash)
+          next unless sample.key?(:oldest_eligible_at) && sample.key?(:last_terminal_failure_at)
+
+          sample.slice(:key, :max_wait_seconds, :notifications).merge(
+            oldest_eligible_at: queue_timestamp(sample[:oldest_eligible_at]),
+            last_terminal_failure_at: queue_timestamp(sample[:last_terminal_failure_at])
+          )
+        rescue StandardError
+          nil
+        end
+      end
+
+      def queue_timestamp(value)
+        value&.getutc&.iso8601(6)
       end
 
       def section

@@ -143,6 +143,8 @@ class RecurringTest < Minitest::Test
 
     def select(*) = self
 
+    def minimum(col) = values(col).min
+
     def values(col) = @rows.map { |r| r[col] }
 
     def pluck(*cols)
@@ -161,6 +163,67 @@ class RecurringTest < Minitest::Test
     }.tap { |h| h.define_singleton_method(:log) { log } }
   end
 
+  def test_latest_success_is_reported_even_when_failures_fill_the_history
+    fakes = solid_queue(
+      executions: (1..11).map { |id| {task_key: "k", job_id: id} },
+      jobs: [{id: 1, finished_at: NOW - 30}],
+      failed: (2..11).map { |id| {job_id: id, created_at: NOW - id} }
+    )
+
+    with_constants(fakes) do
+      task = {key: "k"}
+      assert_equal ["fail"] * 10, Source.sample(task, NOW - 3600).map { |run| run[:result] }
+      assert_equal (NOW - 30).iso8601, task.dig(:active_snapshot, :latest_success_at)
+    end
+  end
+
+  def test_active_snapshot_covers_claims_older_than_the_running_sample
+    claims = (1..101).map { |id| {job_id: id, created_at: NOW - id} }
+    executions = claims.map { |row| {task_key: "k", job_id: row[:job_id]} }
+
+    with_constants(solid_queue(executions: executions, claimed: claims)) do
+      task = {key: "k"}
+      history = Source.sample(task, NOW - 3600)
+
+      assert_equal 100, history.size
+      assert_equal (NOW - 101).iso8601, task.dig(:active_snapshot, :oldest_active_at)
+    end
+  end
+
+  def test_empty_active_snapshot_is_distinct_from_an_unreadable_queue
+    with_constants(solid_queue) do
+      task = {key: "k"}
+      assert_empty Source.sample(task, NOW - 3600)
+      assert_equal({oldest_active_at: nil, latest_success_at: nil}, task[:active_snapshot])
+    end
+
+    with_constants(solid_queue.merge("SolidQueue::ClaimedExecution" => Object.new)) do
+      task = {key: "k"}
+      assert_empty Source.sample(task, NOW - 3600)
+      refute task.key?(:active_snapshot)
+    end
+  end
+
+  def test_active_claims_are_reported_without_finished_job_retention
+    fakes = solid_queue(
+      executions: [{task_key: "k", job_id: 1}],
+      claimed: [{job_id: 1, created_at: NOW - 60}]
+    )
+    with_constants(fakes) do
+      ::SolidQueue.define_singleton_method(:preserve_finished_jobs?) { false }
+      Source.stub(:tasks, [{key: "k"}]) do
+        section = Source.call(now: NOW)
+        assert_equal [{
+          key: "k",
+          active_snapshot: {oldest_active_at: (NOW - 60).iso8601, finished_history_available: false}
+        }], section[:tasks]
+        assert_empty section[:runs]
+      end
+    ensure
+      ::SolidQueue.singleton_class.remove_method(:preserve_finished_jobs?)
+    end
+  end
+
   def test_runs_never_select_job_arguments_and_report_each_state
     fakes = solid_queue(
       executions: [11, 12, 13].map { |id| {task_key: "k", job_id: id} },
@@ -170,7 +233,7 @@ class RecurringTest < Minitest::Test
     )
 
     with_constants(fakes) do
-      runs = Source.runs(["k"], NOW)
+      runs = Source.runs([{key: "k"}], NOW)
       assert_equal %w[running fail success], runs.map { |r| r[:result] }
       assert_equal %w[sq-13 sq-12 sq-11], runs.map { |r| r[:run_id] }
     end
@@ -186,7 +249,7 @@ class RecurringTest < Minitest::Test
       claimed: [{job_id: 1, created_at: NOW - 6000}])
 
     with_constants(fakes) do
-      runs = Source.runs(["k"], NOW)
+      runs = Source.runs([{key: "k"}], NOW)
       assert_equal "sq-1", runs.first[:run_id]
       assert_equal "running", runs.first[:result]
       finished = runs.drop(1)
@@ -203,7 +266,7 @@ class RecurringTest < Minitest::Test
     fakes = solid_queue(executions: executions, jobs: jobs)
 
     with_constants(fakes) do
-      runs = Source.runs(["k"], NOW)
+      runs = Source.runs([{key: "k"}], NOW)
       assert_equal "sq-1", runs.first[:run_id]
       assert_equal 10, runs.size
     end
@@ -214,14 +277,14 @@ class RecurringTest < Minitest::Test
       executions: [{task_key: "k", job_id: 1}],
       jobs: [{id: 1, finished_at: NOW - 39 * 3600}]
     )
-    with_constants(fakes) { assert_equal [], Source.runs(["k"], NOW) }
+    with_constants(fakes) { assert_equal [], Source.runs([{key: "k"}], NOW) }
   end
 
   def test_rows_are_read_per_task_so_a_frequent_task_cannot_hide_another
     executions = (1..300).map { |id| {task_key: "busy", job_id: id} } + [{task_key: "daily", job_id: 999}]
     jobs = (1..300).map { |id| {id: id, finished_at: NOW - id} } + [{id: 999, finished_at: NOW - 7200}]
     with_constants(solid_queue(executions: executions, jobs: jobs)) do
-      runs = Source.runs(%w[busy daily], NOW)
+      runs = Source.runs([{key: "busy"}, {key: "daily"}], NOW)
       assert_includes runs.map { |r| r[:run_id] }, "sq-999"
       assert_equal 10, runs.count { |r| r[:key] == "busy" }
     end
@@ -229,7 +292,7 @@ class RecurringTest < Minitest::Test
 
   def test_runs_fail_closed
     with_constants("SolidQueue::RecurringExecution" => Object.new) do
-      assert_equal [], Source.runs(["a"], NOW)
+      assert_equal [], Source.runs([{key: "a"}], NOW)
     end
   end
 

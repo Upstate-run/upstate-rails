@@ -23,7 +23,8 @@ module Upstate
           list = tasks
           return {adapter: "solid_queue", tasks: nil, runs: []} if list.nil?
 
-          {adapter: "solid_queue", tasks: list, runs: runs(list.map { |t| t[:key] }, now)}
+          list.each { |task| task[:active_snapshot] = nil }
+          {adapter: "solid_queue", tasks: list, runs: runs(list, now)}
         end
 
         def schedule_path
@@ -82,6 +83,23 @@ module Upstate
           nil
         end
 
+        # An unbounded-by-count minimum proves whether the oldest active claim still
+        # exists, even when the run history has already dropped its completion.
+        def sample(task, since, finished_history: true)
+          job_ids = ::SolidQueue::RecurringExecution.where(task_key: task[:key]).select(:job_id)
+          runs, latest_success = finished_history ? task_runs(task[:key], job_ids, since) : [[], nil]
+          oldest_active = ::SolidQueue::ClaimedExecution.where(job_id: job_ids).minimum(:created_at)
+          task[:active_snapshot] = {oldest_active_at: oldest_active && iso(oldest_active)}
+          if finished_history
+            task[:active_snapshot][:latest_success_at] = latest_success && iso(latest_success)
+          else
+            task[:active_snapshot][:finished_history_available] = false
+          end
+          runs
+        rescue StandardError
+          []
+        end
+
         # Recent runs of the given recurring tasks. Per task, three independent bounded reads,
         # none of which depends on the order executions were enqueued in:
         #   * runs still going: every claimed execution of the task (bounded by what is
@@ -89,18 +107,13 @@ module Upstate
         #   * finished jobs, newest RUNS_PER_TASK by finish time inside WINDOW;
         #   * failed jobs, newest RUNS_PER_TASK by failure time inside WINDOW.
         # The finished and failed reads are merged and cut to RUNS_PER_TASK by end time.
-        def runs(keys, now)
-          return [] if keys.empty? || !defined?(::SolidQueue::RecurringExecution)
-
-          since = now - WINDOW
-          keys.flat_map { |key| task_runs(key, since) }
-        rescue StandardError
-          []
+        def runs(tasks, now)
+          return [] unless defined?(::SolidQueue::RecurringExecution)
+          finished_history = !::SolidQueue.respond_to?(:preserve_finished_jobs?) || ::SolidQueue.preserve_finished_jobs?
+          tasks.flat_map { |task| sample(task, now - WINDOW, finished_history: finished_history) }
         end
 
-        def task_runs(key, since)
-          job_ids = ::SolidQueue::RecurringExecution.where(task_key: key).select(:job_id)
-
+        def task_runs(key, job_ids, since)
           running = ::SolidQueue::ClaimedExecution.where(job_id: job_ids)
             .order(created_at: :desc).limit(MAX_RUNNING).pluck(:job_id, :created_at)
           done = ::SolidQueue::Job.where(id: job_ids).where(finished_at: since..)
@@ -113,7 +126,8 @@ module Upstate
           ended = ended.compact.uniq { |r| r[:run_id] }.sort_by { |r| r[:finished_at] }.reverse
           going = running.filter_map { |id, at| run(key, id, nil, nil, at) }
 
-          going + ended.reject { |r| going.any? { |g| g[:run_id] == r[:run_id] } }.first(RUNS_PER_TASK)
+          history = going + ended.reject { |r| going.any? { |g| g[:run_id] == r[:run_id] } }.first(RUNS_PER_TASK)
+          [history, done.first&.last]
         end
 
         # failed -> fail (at the failure), finished -> success, claimed -> running (since the

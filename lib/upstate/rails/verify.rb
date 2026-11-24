@@ -11,13 +11,19 @@ module Upstate
     class Verify
       Check = Struct.new(:name, :status, :detail, :action, keyword_init: true) do
         def ok? = status == "ok"
+
+        def note? = status == "note"
       end
 
-      def self.call(endpoint: nil)
-        new(endpoint).call
+      NON_PRODUCTION = %w[development test].freeze
+      PRODUCTION_COMMAND = "kamal app exec --reuse 'bin/rails upstate:verify'"
+
+      def self.call(endpoint: nil, environment: nil)
+        new(endpoint, environment).call
       end
 
-      def initialize(endpoint)
+      def initialize(endpoint, environment = nil)
+        @environment = (environment || ::Rails.env).to_s
         @endpoint = endpoint || Endpoint.new(health: -> { Health.call(read_only: true) })
       end
 
@@ -32,10 +38,10 @@ module Upstate
         {
           reporter: {name: "upstate-rails", version: Upstate::Rails::VERSION},
           runtime: {rails: ::Rails.version, ruby: RUBY_VERSION},
-          environment: ::Rails.env.to_s,
+          environment: @environment,
           token: token_summary(token),
           checks: checks.map(&:to_h),
-          ok: checks.all?(&:ok?),
+          ok: checks.all? { |check| check.ok? || check.note? },
           next_step: "A passing local check is not proof that Upstate receives data. After a deploy, run `upstate doctor` and wait for fresh evidence."
         }
       end
@@ -45,7 +51,8 @@ module Upstate
         lines = ["Upstate Rails reporter #{report[:reporter][:version]} (Rails #{report[:runtime][:rails]}, Ruby #{report[:runtime][:ruby]}, #{report[:environment]})"]
         lines << "Token: #{report[:token][:present] ? "present (#{report[:token][:length]} characters, value not shown)" : "not set"}"
         report[:checks].each do |check|
-          lines << "#{(check[:status] == "ok") ? "ok  " : "FAIL"} #{check[:name]}: #{check[:detail]}"
+          mark = {"ok" => "ok  ", "note" => "note"}.fetch(check[:status], "FAIL")
+          lines << "#{mark} #{check[:name]}: #{check[:detail]}"
           lines << "     next: #{check[:action]}" if check[:action]
         end
         lines << report[:next_step]
@@ -59,7 +66,11 @@ module Upstate
       end
 
       def configured_check(token)
-        if token.empty?
+        if token.empty? && NON_PRODUCTION.include?(@environment)
+          Check.new(name: "configured", status: "note",
+            detail: "UPSTATE_HEALTH_TOKEN is not set in this #{@environment} environment. That is expected outside production: the endpoint is off here and nothing is reported.",
+            action: "To check production, run: #{PRODUCTION_COMMAND}")
+        elsif token.empty?
           Check.new(name: "configured", status: "disabled",
             detail: "UPSTATE_HEALTH_TOKEN is not set in this environment, so /upstate/health answers 404 and nothing is reported.",
             action: "Generate a health token in Upstate, set UPSTATE_HEALTH_TOKEN for this environment (for example under env.secret in config/deploy.yml), then deploy.")

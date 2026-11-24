@@ -71,7 +71,37 @@ bin/rails upstate:verify
 
 Read-only. It sends nothing to Upstate and writes nothing (no cache probe, no job-system access, no action-rollup flush, no credential change), though it reads your database to build the response, as the endpoint does. It does not touch the cache, Sidekiq or other job systems, recurring-job tables or action rollups. It shows whether the reporter is on or disabled, that a token is present (its value is never printed), the reporter, Rails and Ruby versions, and that the endpoint rejects a wrong token, accepts the configured one and answers with schema 1 (the version it shows is your `APP_VERSION` or `KAMAL_VERSION`, not the gem's). It exits non-zero when something needs fixing and says what to do. It never runs on install, only when you invoke it.
 
+To check production, run it inside the container:
+
+```sh
+kamal app exec --reuse 'bin/rails upstate:verify'
+```
+
+With no token in a development or test environment the check prints a `note` ("expected outside production") with this command and exits 0. Without a token in production it is a `FAIL`.
+
 A passing local check does not prove Upstate is receiving data. After a deploy, run `upstate doctor` to see Configured, Connected and Fresh evidence from Upstate itself.
+
+## Report progress for a durable queue
+
+Register a callback in an initializer to report an application-owned inbox or outbox.
+
+```ruby
+Upstate::Rails.queue_progress = ->(now) {
+  [{
+    key: "webhook_inbox",
+    oldest_eligible_at: WebhookInbox.eligible(now).minimum(:created_at),
+    last_terminal_failure_at: WebhookInbox.failed.maximum(:updated_at),
+    max_wait_seconds: 120,
+    notifications: false
+  }]
+}
+```
+
+The callback runs when the authenticated endpoint is scraped. Use indexed, time-bounded reads and
+return timestamps or `nil` for an empty result. Raise or omit the sample when the queue cannot be
+read. Use a stable queue key and age eligible work from when it first became due. Keep notifications
+off until you see fresh readings in Upstate. Only the queue key, timestamps, deadline and
+notification setting are sent. Local verification skips this callback.
 
 ## Good to know
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- Report the oldest active Solid Queue claim independently of recent run history, so fast jobs can be checked for stuck runs. Report the latest successful completion even when newer failures fill the history sample.
+- Allow applications to report aggregate progress for a durable inbox or outbox through the authenticated health endpoint.
+
+## 0.5.0
+
+- With no `UPSTATE_HEALTH_TOKEN` in a development or test environment, `rake upstate:verify` reports a `note` instead of `FAIL`, says this is expected outside production, prints the production command and exits 0. Without a token in production it still fails.
+- Document running the check in production: `kamal app exec --reuse 'bin/rails upstate:verify'`.
+
 ## 0.4.0
 
 - Add `rake upstate:verify`, a read-only check that sends nothing to Upstate and writes nothing (it reads the app's database, as the endpoint does, and does not touch the cache, job systems, recurring-job tables or action rollups): disabled or configured, token presence (never the value), reporter and runtime versions, and endpoint authorization and response. Nothing runs on install, and it sends nothing to Upstate.

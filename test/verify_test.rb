@@ -7,11 +7,25 @@ require "minitest/mock"
 class VerifyTest < Minitest::Test
   TOKEN = "s3cr3t-" + ("t" * 33)
 
-  def report(token)
-    with_env("UPSTATE_HEALTH_TOKEN" => token) { Upstate::Rails::Verify.call }
+  def report(token, environment: "production")
+    with_env("UPSTATE_HEALTH_TOKEN" => token) { Upstate::Rails::Verify.call(environment: environment) }
   end
 
-  def test_disabled_without_token_has_next_action
+  def test_no_token_in_development_or_test_is_a_note_not_a_failure
+    %w[development test].each do |env|
+      r = report(nil, environment: env)
+      assert r[:ok]
+      check = r[:checks].first
+      assert_equal "note", check[:status]
+      assert_includes check[:action], "kamal app exec --reuse 'bin/rails upstate:verify'"
+      text = Upstate::Rails::Verify.render(r)
+      assert_includes text, "note configured:"
+      assert_includes text, "expected outside production"
+      refute_includes text, "FAIL"
+    end
+  end
+
+  def test_disabled_without_token_in_production_has_next_action
     r = report(nil)
     refute r[:ok]
     check = r[:checks].first
@@ -138,4 +152,26 @@ class VerifyTest < Minitest::Test
     load File.expand_path("../lib/tasks/upstate.rake", __dir__)
     assert Rake::Task.task_defined?("upstate:verify")
   end
+  def test_queue_progress_is_allowlisted_and_excluded_from_read_only_verification
+    now = Time.now.utc
+    callback = ->(at) {
+      [{key: "inbox", max_wait_seconds: 120, oldest_eligible_at: at - 30,
+        last_terminal_failure_at: nil, notifications: false, payload: "private"}]
+    }
+
+    Upstate::Rails.stub(:queue_progress, -> { callback }) do
+      _, body = Upstate::Rails::Health.call(now: now)
+      assert_equal [{
+        key: "inbox",
+        oldest_eligible_at: (now - 30).iso8601(6),
+        last_terminal_failure_at: nil,
+        max_wait_seconds: 120,
+        notifications: false
+      }], body[:queue_progress]
+
+      _, verification = Upstate::Rails::Health.call(now: now, read_only: true)
+      refute verification.key?(:queue_progress)
+    end
+  end
+
 end
