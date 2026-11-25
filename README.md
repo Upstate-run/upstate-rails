@@ -11,14 +11,16 @@ The gem adds one endpoint, `GET /upstate/health`. Upstate's host observer reads 
 - Database health for the primary connection (PostgreSQL only): its size in bytes (`pg_database_size`, this database only, not WAL or other databases), connections in use and `max_connections`, the oldest open transaction's age and the number of sessions idle in transaction (as visible to the app's role), `age(datfrozenxid)` (wraparound headroom), replication lag where this connection can see it, and the 5 largest tables with their total size and estimated live and dead rows. Table names are sent; row data never is. One transaction with a 250ms statement timeout and a savepoint per query; anything that fails, or MySQL/SQLite, is left out.
 - Active Record pool size, busy and waiting connections.
 - Puma workers, threads, backlog and spare capacity.
+- The reporter's name and version, and, for the process that answered the request, resident memory in bytes (`process.rss_bytes`, read from `/proc/self/status` on Linux, `null` elsewhere) and Ruby GC counters (`process.gc`: `count`, `major_count`, `minor_count`, `heap_live_slots`, `total_allocated_objects`). Numbers only.
 - Job numbers for Solid Queue, Sidekiq or GoodJob: queue depth, oldest queued age, worker count, jobs processed and failed in the last 5 minutes, and when something last ran.
+- Per queue (top 50 by depth): the queue name, jobs ready to run and the oldest one's age. The queues your live workers serve (names, with `*` wildcards as your adapter allows; `all` is true when a worker serves every queue). For Solid Queue and GoodJob, per job class (top 50, last 5 minutes): the class name, processed and failed counts, and, for GoodJob, average and maximum run time in milliseconds (`null` on Solid Queue, which does not record a start time; Sidekiq sends no per-class data). Queue names are cut at 120 characters and class names at 200. Arguments, errors and job ids are never read. Each of these is read from your job store by the web process, and any that cannot be read is left out.
 - Solid Queue only: your recurring jobs from `config/recurring.yml` (or `SOLID_QUEUE_RECURRING_SCHEDULE`), under the current Rails environment. For each, the key, the class name and the schedule text, and for its recent runs (last 24 hours, newest 10 finished runs per job, plus any still running) an id, when it started or finished and whether it succeeded, failed or is running. Upstate turns these into check-in suggestions; nothing is monitored until you accept. A job's arguments and `command:` are never read.
 - Whether your cache (Solid Cache or Redis) answers.
 - For the last 15 minutes, the 10 slowest `Controller#action` names per minute, with request count, error count, a 12-bucket timing histogram, and total database time.
 
 ## What is never sent
 
-No params, URLs or paths, SQL, row data, IP addresses, user agents, headers, cookies, job arguments, exception classes or messages, logs, or traces. An error is only a count (a 5xx response or an unhandled exception). Queue names are not read. Job class names are read only for the recurring jobs listed in `config/recurring.yml`, and never for other jobs.
+No params, URLs or paths, SQL, row data, IP addresses, user agents, headers, cookies, job arguments, exception classes or messages, logs, or traces. An error is only a count (a 5xx response or an unhandled exception). Queue names and job class names are sent as described above (code identifiers, never arguments).
 
 ## Install
 
@@ -109,6 +111,7 @@ notification setting are sent. Local verification skips this callback.
 - The path is excluded from `config.host_authorization` and from the `force_ssl` redirect, because the observer calls the container's private IP over plain HTTP. Nothing else changes in those settings.
 - Action timings are kept in memory per Puma worker and written to `Dir.tmpdir/upstate-rails/<pid>.json` about once a minute (not on every request). The endpoint merges the files of live processes. Files older than 20 minutes are ignored.
 - Sidekiq keeps lifetime counters only, so `processed_last_5m` and `failed_last_5m` are `null` until the gem has seen two readings at least 30 seconds apart in one process.
+- `process` describes the single Puma worker that answered the request. Workers are not merged, so successive readings may come from different workers.
 - In Puma cluster mode, a worker answering the request sees the other workers through the master's last snapshot, so Puma numbers are best effort.
 - Requires Ruby 3.1+ and Rails 7.1+. No other runtime gems.
 

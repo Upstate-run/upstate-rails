@@ -21,7 +21,7 @@ class HealthTest < Minitest::Test
   def test_response_shape
     status, body = Upstate::Rails::Health.call
     assert_equal 200, status
-    assert_equal %i[schema version rails ruby booted_at database active_record_pool puma jobs cache actions].sort, body.keys.sort
+    assert_equal %i[schema version reporter process rails ruby booted_at database active_record_pool puma jobs cache actions].sort, body.keys.sort
     assert_equal 1, body[:schema]
     assert_equal ::Rails.version, body[:rails][:version]
     assert_equal "test", body[:rails][:environment]
@@ -186,6 +186,47 @@ class HealthTest < Minitest::Test
     ]}
     with_constants("Puma" => Module.new { define_singleton_method(:stats_hash) { cluster } }) do
       assert_equal({workers: 2, booted_workers: 2, max_threads: 6, backlog: 2, pool_capacity: 3}, Upstate::Rails::Sections.puma)
+    end
+  end
+
+  def test_reporter_identity
+    _status, body = Upstate::Rails::Health.call
+    assert_equal({name: "upstate-rails", version: Upstate::Rails::VERSION}, body[:reporter])
+  end
+
+  def test_process_reports_rss_and_gc_counts
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "status")
+      File.write(path, "Name:\truby\nVmRSS:\t  2048 kB\nThreads:\t3\n")
+      assert_equal 2048 * 1024, Upstate::Rails::Sections.rss_bytes(path)
+    end
+    gc = Upstate::Rails::Sections.process[:gc]
+    assert_equal %i[count major_count minor_count heap_live_slots total_allocated_objects], gc.keys
+    assert gc.values.all?(Integer)
+    rss = Upstate::Rails::Sections.process[:rss_bytes]
+    assert(rss.nil? || rss.positive?)
+  end
+
+  def test_rss_unavailable_is_nil
+    assert_nil Upstate::Rails::Sections.rss_bytes("/nonexistent/proc/status")
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "status")
+      File.write(path, "Name:\truby\n")
+      assert_nil Upstate::Rails::Sections.rss_bytes(path)
+    end
+  end
+
+  def test_gc_failure_makes_the_gc_section_nil
+    GC.stub(:stat, -> { raise "boom" }) do
+      assert_nil Upstate::Rails::Sections.gc_stats
+      assert_nil Upstate::Rails::Sections.process[:gc]
+    end
+  end
+
+  def test_process_section_failure_is_nil_in_response
+    Upstate::Rails::Sections.stub(:process, -> { raise "boom" }) do
+      _status, body = Upstate::Rails::Health.call
+      assert_nil body[:process]
     end
   end
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+- Report the reporter's name and version, and this process's resident memory (`rss_bytes`, Linux only, otherwise `null`) and Ruby GC counters (`process.gc`). Counts and sizes only. They describe the one Puma worker that answered the request; workers are not merged.
+- Add `queues` (name, depth, oldest queued age; top 50), `served_queues` (queues served by live workers) and `classes` (per job class processed, failed and run time over 5 minutes; top 50) to `jobs` for Solid Queue, GoodJob and Sidekiq where the adapter exposes them. Each is `null` independently if it cannot be read. Arguments, errors and job ids are never read.
+
 ## 0.6.0
 
 - Report the oldest active Solid Queue claim independently of recent run history, so fast jobs can be checked for stuck runs. Report the latest successful completion even when newer failures fill the history sample.

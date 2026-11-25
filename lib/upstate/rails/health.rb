@@ -26,12 +26,14 @@ module Upstate
         body = {
           schema: SCHEMA,
           version: version,
+          reporter: {name: "upstate-rails", version: Upstate::Rails::VERSION},
           rails: section { {version: ::Rails.version, environment: ::Rails.env.to_s} },
           ruby: section { {version: RUBY_VERSION, yjit: yjit?} },
           booted_at: BOOTED_AT.iso8601,
           database: database,
           active_record_pool: section { Sections.active_record_pool },
           puma: section { Sections.puma },
+          process: section { Sections.process },
           jobs: jobs,
           cache: @read_only ? nil : section { Sections.cache },
           actions: @read_only ? nil : section { actions }

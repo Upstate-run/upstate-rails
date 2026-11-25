@@ -70,15 +70,26 @@ end
 
 # Minimal stand-in for an ActiveRecord relation / model class.
 class FakeRelation
-  def initialize(count: 0, minimum: nil, maximum: nil)
+  def initialize(count: 0, minimum: nil, maximum: nil, grouped: nil, records: nil)
+    @grouped = grouped
+    @records = records
     @count = count
     @minimum = minimum
     @maximum = maximum
   end
 
-  def where(*) = self
+  def wheres = (@wheres ||= [])
+  def where(*args) = tap { wheres << args }
   def not(*) = self
-  def count(*) = @count
-  def minimum(*) = @minimum
-  def maximum(*) = @maximum
+  def group(*) = FakeRelation.new(count: @count, minimum: @minimum, maximum: @maximum, grouped: @grouped, records: @records).tap { |r| r.grouping! }
+  def grouping! = @group = true
+  def table_name = "solid_queue_jobs"
+  def order(*) = self
+  def limit(*) = self
+  def joins(*) = self
+  def to_a = @records || raise(NoMethodError, "to_a")
+  def count(*) = (@group && @grouped) ? @grouped[:count] : @count
+  def minimum(*) = (@group && @grouped) ? @grouped[:minimum] : @minimum
+  def maximum(*) = (@group && @grouped) ? @grouped[:maximum] : @maximum
+  def average(*) = (@group && @grouped) ? @grouped[:average] : nil
 end

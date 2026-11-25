@@ -180,6 +180,32 @@ module Upstate
         end
       end
 
+      GC_KEYS = {
+        count: :count, major_count: :major_gc_count, minor_count: :minor_gc_count,
+        heap_live_slots: :heap_live_slots, total_allocated_objects: :total_allocated_objects
+      }.freeze
+
+      # This process's numbers only: the endpoint is answered by one Puma worker, and
+      # workers are not merged. rss_bytes is nil where /proc is unavailable (macOS).
+      # Counts and sizes only; the GC section is nil if GC.stat fails.
+      def process
+        {rss_bytes: rss_bytes, gc: gc_stats}
+      end
+
+      def rss_bytes(path = "/proc/self/status")
+        kb = File.foreach(path) { |line| break $1.to_i if line =~ /\AVmRSS:\s+(\d+)\s+kB/ }
+        kb.is_a?(Integer) ? kb * 1024 : nil
+      rescue StandardError
+        nil
+      end
+
+      def gc_stats
+        stat = GC.stat
+        GC_KEYS.to_h { |name, key| [name, Integer(stat.fetch(key))] }
+      rescue StandardError
+        nil
+      end
+
       def sum(rows, key)
         values = rows.filter_map { |r| r[key] }
         values.empty? ? nil : values.sum
